@@ -1,0 +1,19 @@
+[project]
+name = "orca-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Jeff Fischer", email = "jeff.fischer@benedat.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "slack-sdk>=3.35.0",
+]
+
+[project.scripts]
+orca-agent = "orca_agent:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
