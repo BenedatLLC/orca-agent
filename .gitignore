@@ -11,3 +11,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# project-specific
+last_check_time.txt
