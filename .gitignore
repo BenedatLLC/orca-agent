@@ -14,3 +14,4 @@ wheels/
 
 # project-specific
 last_check_time.txt
+.minikube

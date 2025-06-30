@@ -6,12 +6,13 @@ import argparse
 import datetime
 from os.path import exists
 import logging
-import time
+import asyncio
 from pydantic_ai.agent import Agent
 from .runbook import get_runbook_text
 from .slack_client import send_message_to_channel
 from .pydantic_utils import pp_run_result
 from .conversations import get_conversations
+from .k8s_tools import make_k8s_mcp
 
 SYSTEM_PROMPT =\
 """You are an automated assistant for monitoring alerts. You will be given a Grafana alert message that
@@ -19,12 +20,18 @@ was sent to Slack along with any replies. Construct a reply to the alert message
 of the alert message and debugging tips. Please be as specific as possible. Include any specific pods, containers,
 deployments, and errors mentioned in the alert.
 
+Use the provided tools to obtain any additional information from the kubernetes cluster regarding any affected
+pods. Use this to make your response relevant to the specific issue in the alert and provide more specific guidance.
+
 If the alert has a url for a runbook, use the provided tool `get_runbook_text` to retrieve the text of the runbook and use it to
 improve your response.
 
 If the alert mentions a `DatasourceError`, check whether this is a problem retrieving metrics from Prometheus or another
 data source rather the problem associated with the original alert. If this is the case, make that clear in your
 explanation.
+
+Be sure to mention where and how you obtained the information you used in the response, including tool calls and their associated kubectl calls, if any.
+This will help users to understand how they can debug this issue themselves in the future.
 
 Write your reply using Markdown formatting. In particular, please use Slack's flavor of markdown ('mrkdwn'), as the
 message will be sent to a Slack channel. In particular, keep the following in mind:
@@ -54,41 +61,43 @@ def make_agent(model: str) -> Agent:
     return Agent(
         model=model,
         system_prompt=SYSTEM_PROMPT,
-        tools=tools
+        tools=tools,
+        mcp_servers=[make_k8s_mcp()]
     )
 
-def check_loop(agent:Agent, later_than:datetime.datetime, args):
+async def check_loop(agent:Agent, later_than:datetime.datetime, args):
     logging.info(f"Entering main loop with later_than={later_than}")
-    while True:
-        next_later_than = datetime.datetime.now()
-        sent_cnt = 0
-        logging.info(f"Checking for conversations since {later_than}")
-        conversations = get_conversations(
-            args.alert_slack_user, args.agent_slack_user,
-            args.alert_slack_channel, limit=100,
-            later_than=later_than
-        )
-        logging.info(f"Found {len(conversations)} messages")
-        for message in conversations:
-            input = message.markdown()
-            logging.info(f"Calling agent with input of length {len(input)}")
-            result = agent.run_sync(input)
-            if args.debug:
-                pp_run_result(result)
+    async with agent.run_mcp_servers():
+        while True:
+            next_later_than = datetime.datetime.now()
+            sent_cnt = 0
+            logging.info(f"Checking for conversations since {later_than}")
+            conversations = get_conversations(
+                args.alert_slack_user, args.agent_slack_user,
+                args.alert_slack_channel, limit=100,
+                later_than=later_than
+            )
+            logging.info(f"Found {len(conversations)} messages")
+            for message in conversations:
+                input = message.markdown()
+                logging.info(f"Calling agent with input of length {len(input)}")
+                result = await agent.run(input)
+                if args.debug:
+                    pp_run_result(result)
+                if not args.dry_run:
+                    send_message_to_channel(args.alert_slack_channel, result.output, message.thread_ts)
+                    logging.info(f"Send message of length {len(result.output)} to channel {args.alert_slack_channel}")
+                else:
+                    logging.info(f"[DRY RUN] Would send message of length {len(result.output)} to channel {args.alert_slack_channel}")
+                    print(f"{'='*15} Output from agent {'='*15}")
+                    print(result.output + '\n')
+                sent_cnt += 1
+            later_than = next_later_than
             if not args.dry_run:
-                send_message_to_channel(args.alert_slack_channel, result.output, message.thread_ts)
-                logging.info(f"Send message of length {len(result.output)} to channel {args.alert_slack_channel}")
-            else:
-                logging.info(f"[DRY RUN] Would send message of length {len(result.output)} to channel {args.alert_slack_channel}")
-                print(f"{'='*15} Output from agent {'='*15}")
-                print(result.output + '\n')
-            sent_cnt += 1
-        later_than = next_later_than
-        if not args.dry_run:
-            with open(args.check_time_file, 'w') as f:
-                f.write(later_than.isoformat())
-        logging.info(f"Processed {sent_cnt} alerts. Will sleep for {args.check_interval_seconds} seconds")
-        time.sleep(args.check_interval_seconds)
+                with open(args.check_time_file, 'w') as f:
+                    f.write(later_than.isoformat())
+            logging.info(f"Processed {sent_cnt} alerts. Will sleep for {args.check_interval_seconds} seconds")
+            await asyncio.sleep(args.check_interval_seconds)
 
 
         
@@ -187,6 +196,6 @@ def main(argv=sys.argv[1:]):
         return 0
 
     agent = make_agent(args.model)
-    check_loop(agent, later_than, args)
+    asyncio.run(check_loop(agent, later_than, args))
     return 0
 

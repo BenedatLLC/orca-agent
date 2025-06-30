@@ -1,8 +1,10 @@
 # orca-agent
 Orca-agent is an an agent for Observability Root Cause Analysis.
 This first version reads Grafana alerts that were sent to a Slack channel,
-and replies with an explanation and suggested debugging approaches. It will leverage
-any runbooks linked in the alert, if they are accessible.
+and replies with an explanation and suggested debugging approaches. It uses
+kubectl (via an [MCP Server](https://github.com/rohitg00/kubectl-mcp-server))
+to find more specific details about the problems. If a runbook is provided in the alert,
+it will use that in formulating a debugging strategy.
 
 ## Prerequisites
 ### direnv
