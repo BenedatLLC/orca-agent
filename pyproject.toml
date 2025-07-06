@@ -19,6 +19,7 @@ dependencies = [
 
 [project.scripts]
 orca-agent = "orca_agent.agent:main"
+delete-messages = "orca_agent.delete_messages:main"
 
 [build-system]
 requires = ["hatchling"]

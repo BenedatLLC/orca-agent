@@ -3,13 +3,13 @@ Interactions with the slack channel (used for alerts and communication with huma
 """
 
 import os
-from typing import Optional, Any
+from typing import Optional, Any, Generator
 from slack_sdk import WebClient
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from pydantic import BaseModel
 
-MAX_CHUNK_SIZE=3000 # max size for a message chunk in slack
+MAX_CHUNK_SIZE=12000 # max size for a message chunk in slack
 
 class ChannelNotFound(Exception):
     pass
@@ -254,34 +254,37 @@ def delete_recent_messages_from_channel(channel_name:str, user_name:str, limit:i
 
     
 
-def chunkify(s:str, max_chunk_size:int) -> list[str]:
+def chunkify(s:str, max_chunk_size:int) -> Generator[str, None, None]:
     """
     Break a string into chunks of at most max_chunk_size, breaking at
    line breaks where possible.
     """
-    chunks = []
     chunk = ""
     for line in s.splitlines(keepends=True):
         if len(chunk) + len(line) <= max_chunk_size:
             chunk += line
         else:
-            while len(line)>max_chunk_size:
-                additional = max_chunk_size - len(chunk)
-                chunk += line[0:additional]
-                chunks.append(chunk)
-                chunk = ""
-                line = line[additional:]
+            # the chunk + new line exceeds the limit, so emit chunk
             if len(chunk)>0:
-                chunks.append(chunk)
-                chunk = line
+                yield chunk
+            chunk = line
+            # if the line itself exceeds the chunk size, we have to break it up.
+            while len(chunk) > max_chunk_size:
+                yield chunk[0:max_chunk_size]
+                chunk = chunk[max_chunk_size:]
+            if len(chunk)>0:
+                yield chunk # just emit the end of the long line in its own chunk
+                chunk = ""
     if len(chunk)>0:
-        chunks.append(chunk)
-    return chunks
+        yield chunk
+
+
     
 
 def send_message_to_channel(channel_name: str, markdown_text: str, thread_ts: Optional[str]) -> None:
     """
     Send a message to a Slack channel, optionally as a reply in a thread.
+    Regarding the markdown formatting, see: https://api.slack.com/reference/block-kit/blocks#markdown
 
     Parameters
     ----------
@@ -301,20 +304,14 @@ def send_message_to_channel(channel_name: str, markdown_text: str, thread_ts: Op
     # we can only send messages of max length 3000, so we
     # break into chunks if needed. The last chunk gets the image
     client = WebClient(token=os.environ["SLACK_BOT_TOKEN"])
-    if len(markdown_text) > MAX_CHUNK_SIZE:
-        text_chunks = chunkify(markdown_text, MAX_CHUNK_SIZE)
-        blocks = [{
-            "type": "section",
+    blocks = []
+    for (i, chunk) in enumerate(chunkify(markdown_text, MAX_CHUNK_SIZE)):
+        blocks.append({
+            "type": "markdown",
             "block_id": str(i),
-            "text": {
-                "type": "mrkdwn",
-                "text": text
-            }
-        } for (i, text) in enumerate(text_chunks)]
-        text = text_chunks[0]
-    else:
-        text = markdown_text
-        blocks = []
+            "text": chunk
+        })
+    text = markdown_text[0:MAX_CHUNK_SIZE]
 
     response = client.chat_postMessage(thread_ts=thread_ts, text=text, channel=channel_id, blocks=blocks, mrkdwn=True)
     if not response['ok']:

@@ -64,6 +64,9 @@ options:
 When running it will check for new messages, process them, sleep for a specified interval (5 minutes, by default),
 and then repeat this sequence.
 
+### Other utilities
+There is a utility to delete the reply messages: `delete-messages`.
+
 ## See also
 [otel-demo](https://github.com/BenedatLLC/otel-demo) provides some scripts, instructions,
 and root cause analyses around the

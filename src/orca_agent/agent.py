@@ -20,26 +20,24 @@ was sent to Slack along with any replies. Construct a reply to the alert message
 of the alert message and debugging tips. Please be as specific as possible. Include any specific pods, containers,
 deployments, and errors mentioned in the alert.
 
+Be sure to mention where and how you obtained the information you used in the response, including tool calls and their associated kubectl calls, if any.
+This will help users to understand how they can debug this issue themselves in the future.
+
+# Tools
 Use the provided tools to obtain any additional information from the kubernetes cluster regarding any affected
 pods. Use this to make your response relevant to the specific issue in the alert and provide more specific guidance.
 
+# Runbooks
 If the alert has a url for a runbook, use the provided tool `get_runbook_text` to retrieve the text of the runbook and use it to
 improve your response.
 
+# Retrieval error handling
 If the alert mentions a `DatasourceError`, check whether this is a problem retrieving metrics from Prometheus or another
 data source rather the problem associated with the original alert. If this is the case, make that clear in your
 explanation.
 
-Be sure to mention where and how you obtained the information you used in the response, including tool calls and their associated kubectl calls, if any.
-This will help users to understand how they can debug this issue themselves in the future.
-
-Write your reply using Markdown formatting. In particular, please use Slack's flavor of markdown ('mrkdwn'), as the
-message will be sent to a Slack channel. In particular, keep the following in mind:
- * Only use the '*' character for bullet lists (never '-')
- * Do not combine headings (e.g. '##') and numbered lists in the same line.
- * Leave a blank line after headings and before a bulleted or numbered list
- * Do not use bold text inside a list item
- * Do not use "---" as a separator, it doesn't work.
+# Output format
+Write your reply using Markdown formatting.
 """
 
 def make_agent(model: str) -> Agent:
