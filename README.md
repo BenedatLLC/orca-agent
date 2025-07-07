@@ -59,6 +59,7 @@ options:
   --dry-run             If specified, do not send messages to Slack (dry run mode)
   --dump-messages-and-exit
                         If specified, print the markdown for all slack alert messages found and exit.
+  --enable-tracing      Enable OpenTelemetry tracing with Phoenix.
 ```
 
 When running it will check for new messages, process them, sleep for a specified interval (5 minutes, by default),
@@ -66,6 +67,31 @@ and then repeat this sequence.
 
 ### Other utilities
 There is a utility to delete the reply messages: `delete-messages`.
+
+## Phoenix integration for tracing
+When running in the development environment, the necessary libraries have been installed to enable OpenTelemetry tracing
+via a locally-hosted [Phoenix](https://github.com/Arize-ai/phoenix) instance. To use it, do the following:
+
+1. Add the following to your .envrc file: `export PHOENIX_COLLECTOR_ENDPOINT=http://localhost:6006`
+2. Run the docker container: `docker run -p 6006:6006 -p 4317:4317 -i -t arizephoenix/phoenix:latest`
+3. When running `orca-agent`, specify the `--enable-tracing` option
+
+## Debugging the Kubernetes MCP Tools
+To debug the Kubernetes MCP tools, use [mcptools](https://github.com/f/mcptools). The syntax for ccalling the MCP
+server is:
+```sh
+mcpt [command] python -m kubectl_mcp_tool.mcp_server
+```
+
+For example:
+```sh
+mcpt tools python -m kubectl_mcp_tool.mcp_server
+mcpt call get_pods python -m kubectl_mcp_tool.mcp_server
+mcpt shell python -m kubectl_mcp_tool.mcp_server # start interactive shell
+
+mcp > call get_pod_events --params {"pod_name":"ad-f4fd4fb69-r5w9"}
+
+```
 
 ## See also
 [otel-demo](https://github.com/BenedatLLC/otel-demo) provides some scripts, instructions,

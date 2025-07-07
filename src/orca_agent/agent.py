@@ -1,18 +1,18 @@
 """
 Agent creation for orca-agent using pydantic.ai.
 """
+import os
 import sys
 import argparse
 import datetime
 from os.path import exists
 import logging
 import asyncio
-from pydantic_ai.agent import Agent
 from .runbook import get_runbook_text
 from .slack_client import send_message_to_channel
-from .pydantic_utils import pp_run_result
 from .conversations import get_conversations
 from .k8s_tools import make_k8s_mcp
+
 
 SYSTEM_PROMPT =\
 """You are an automated assistant for monitoring alerts. You will be given a Grafana alert message that
@@ -24,8 +24,18 @@ Be sure to mention where and how you obtained the information you used in the re
 This will help users to understand how they can debug this issue themselves in the future.
 
 # Tools
-Use the provided tools to obtain any additional information from the kubernetes cluster regarding any affected
+Be sure the provided tools to obtain any additional information from the kubernetes cluster regarding any affected
 pods. Use this to make your response relevant to the specific issue in the alert and provide more specific guidance.
+In particular, the following tools will be helpful in understanding the state of the system:
+
+* get_namespaces
+* get_services
+* get_nodes
+* get_pods
+* get_events
+* get_pod_events
+* get_logs
+* get_deployments
 
 # Runbooks
 If the alert has a url for a runbook, use the provided tool `get_runbook_text` to retrieve the text of the runbook and use it to
@@ -37,10 +47,10 @@ data source rather the problem associated with the original alert. If this is th
 explanation.
 
 # Output format
-Write your reply using Markdown formatting.
+Write your reply using Markdown formatting. Don't use tables, as they aren't supported by Slack's markdown.
 """
 
-def make_agent(model: str) -> Agent:
+def make_agent(model: str, instrument:bool=False):
     """
     Create and return a pydantic.ai Agent with access to runbook and Slack tools.
 
@@ -53,17 +63,21 @@ def make_agent(model: str) -> Agent:
     Agent
         A configured pydantic.ai Agent instance.
     """
+    from pydantic_ai.agent import Agent
     tools = [
         get_runbook_text,
     ]
+    print(f"instrument={instrument}") # XXX
     return Agent(
         model=model,
         system_prompt=SYSTEM_PROMPT,
         tools=tools,
-        mcp_servers=[make_k8s_mcp()]
+        mcp_servers=[make_k8s_mcp()],
+        instrument=instrument
     )
 
-async def check_loop(agent:Agent, later_than:datetime.datetime, args):
+async def check_loop(agent, later_than:datetime.datetime, args):
+    from .pydantic_utils import pp_run_result
     logging.info(f"Entering main loop with later_than={later_than}")
     async with agent.run_mcp_servers():
         while True:
@@ -89,6 +103,8 @@ async def check_loop(agent:Agent, later_than:datetime.datetime, args):
                     logging.info(f"[DRY RUN] Would send message of length {len(result.output)} to channel {args.alert_slack_channel}")
                     print(f"{'='*15} Output from agent {'='*15}")
                     print(result.output + '\n')
+                    logging.info("[DRY RUN] Exit after first message")
+                    return
                 sent_cnt += 1
             later_than = next_later_than
             if not args.dry_run:
@@ -161,7 +177,7 @@ def main(argv=sys.argv[1:]):
         '--dry-run',
         action='store_true',
         default=False,
-        help='If specified, do not send messages to Slack (dry run mode)'
+        help='If specified, do not send messages to Slack and process only one event (dry run mode)'
     )
     parser.add_argument(
         '--dump-messages-and-exit',
@@ -169,9 +185,45 @@ def main(argv=sys.argv[1:]):
         default=False,
         help='If specified, print the markdown for all slack alert messages found and exit.'
     )
+    parser.add_argument(
+        '--enable-tracing',
+        action='store_true',
+        default=False,
+        help='Enable OpenTelemetry tracing with Phoenix.'
+    )
+    
 
     args = parser.parse_args(argv)
+
     logging.basicConfig(level=getattr(logging, args.log.upper(), logging.WARNING))
+
+    if args.enable_tracing:
+        try:
+            from opentelemetry import trace
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+            from opentelemetry.sdk.trace import TracerProvider
+            from openinference.instrumentation.pydantic_ai import OpenInferenceSpanProcessor
+            from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+
+            # Set up the tracer provider
+            tracer_provider = TracerProvider()
+            trace.set_tracer_provider(tracer_provider)
+
+            # Add the OpenInference span processor
+            endpoint = f"{os.environ['PHOENIX_COLLECTOR_ENDPOINT']}/v1/traces"
+
+            # If you are using a local instance without auth, ignore these headers
+            headers = {} # {"Authorization": f"Bearer {os.environ['PHOENIX_API_KEY']}"}
+            exporter = OTLPSpanExporter(endpoint=endpoint, headers=headers)
+
+            tracer_provider.add_span_processor(OpenInferenceSpanProcessor())
+            tracer_provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+            logging.info("OpenTelemetry tracing with Phoenix enabled.")
+        except ImportError as e:
+            logging.error(f"Tracing requested but OpenTelemetry or Phoenix is not installed: {e}")
+            sys.exit(1)
+
 
     # figure out how far back we go for messages.
     if args.last_check_time:
@@ -193,7 +245,7 @@ def main(argv=sys.argv[1:]):
             print(message.markdown())
         return 0
 
-    agent = make_agent(args.model)
+    agent = make_agent(args.model, instrument=args.enable_tracing)
     asyncio.run(check_loop(agent, later_than, args))
     return 0
 

@@ -3,3 +3,4 @@ export SLACK_BOT_TOKEN="CHANGE_ME"
 export OPENAI_API_KEY="CHANGE_ME"
 export KUBECONFIG="/path/to/your/k8s/config"
 export MCP_LOG_FILE="/path/to/file/mcp.log"
+PHOENIX_COLLECTOR_ENDPOINT='http://localhost:6006' # set if using phoenix for tracing
