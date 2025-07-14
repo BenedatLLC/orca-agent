@@ -59,24 +59,46 @@ class MockK8S:
 
     def _mock_pods(self):
         now = datetime.datetime.now(datetime.timezone.utc)
+        def spec_to_dict(self):
+            return {
+                "containers": [{"name": "container-1", "image": "nginx:latest"}],
+                # Add other fields as needed for your tests
+            }
         container_status = SimpleNamespace(
             ready=True,
             restart_count=1,
-            last_state=SimpleNamespace(terminated=SimpleNamespace(finished_at=now - datetime.timedelta(hours=2))),
+            last_state=SimpleNamespace(terminated=SimpleNamespace(started_at=now - datetime.timedelta(hours=3),
+                                                                  finished_at=now - datetime.timedelta(hours=2),
+                                                                  exit_code=137, reason='OOMKilled', message=None),
+                                       running=None, waiting=None),
             state=SimpleNamespace(running=SimpleNamespace(started_at=now - datetime.timedelta(days=1)), waiting=None, terminated=None),
-            name="container-1"
+            name="container-1",
+            image="nginx:latest",
+            started=True,
+            stop_signal=None,
+            volume_mounts=[],
+            resources=None,
+            resource_requests={},
+            resource_limits={},
+            allocated_resources={}
         )
         container1 = SimpleNamespace(name="container-1", image="nginx:latest")
         container2 = SimpleNamespace(name="container-2", image="busybox:latest")
+        spec1 = SimpleNamespace(containers=[container1])
+        spec1.to_dict = spec_to_dict.__get__(spec1)
         pod1 = SimpleNamespace(
             metadata=SimpleNamespace(name="pod-1", namespace="default", creation_timestamp=now - datetime.timedelta(days=1)),
-            spec=SimpleNamespace(containers=[container1]),
-            status=SimpleNamespace(container_statuses=[container_status])
+            spec=spec1,
+            status=SimpleNamespace(container_statuses=[container_status]),
+            to_dict=lambda self: dict(self)
         )
+        spec2 = SimpleNamespace(containers=[container1, container2])
+        spec2.to_dict = spec_to_dict.__get__(spec2)
         pod2 = SimpleNamespace(
             metadata=SimpleNamespace(name="pod-2", namespace="test", creation_timestamp=now - datetime.timedelta(hours=12)),
-            spec=SimpleNamespace(containers=[container1, container2]),
-            status=SimpleNamespace(container_statuses=[container_status, container_status])
+            spec=spec2,
+            status=SimpleNamespace(container_statuses=[container_status, container_status]),
+            to_dict=lambda self: dict(self)
         )
         return SimpleNamespace(items=[pod1, pod2])
 
@@ -105,11 +127,14 @@ def test_get_pod_summaries():
     assert isinstance(pods[0].age, datetime.timedelta)
 
 def test_get_pod_container_statuses():
+    # Adjusted for new return type: should be instance of k8s_tools.ContainerStatus
     with patch.object(k8s_tools.client, "V1Pod", SimpleNamespace):
         statuses = k8s_tools.get_pod_container_statuses("pod-1", "default")
+        assert isinstance(statuses, list)
         assert len(statuses) == 1
         cs = statuses[0]
-        assert cs.name == "container-1"
+        assert isinstance(cs, k8s_tools.ContainerStatus)
+        assert cs.container_name == "container-1"
         assert cs.ready is True
         assert cs.restart_count == 1
         assert hasattr(cs, "last_state")
@@ -127,12 +152,13 @@ def test_get_pod_events():
 def test_get_pod_spec():
     with patch.object(k8s_tools.client, "V1Pod", SimpleNamespace):
         spec = k8s_tools.get_pod_spec("pod-1", "default")
-        assert hasattr(spec, "containers")
-        assert spec.containers is not None
-        assert isinstance(spec.containers, list)
-        assert len(spec.containers) == 1
-        assert spec.containers[0].name == "container-1"
-        assert spec.containers[0].image == "nginx:latest"
+        assert isinstance(spec, dict)
+        assert "containers" in spec
+        assert spec["containers"] is not None
+        assert isinstance(spec["containers"], list)
+        assert len(spec["containers"]) == 1
+        assert spec["containers"][0]["name"] == "container-1"
+        assert spec["containers"][0]["image"] == "nginx:latest"
 
 def test_retrieve_logs_from_pod_and_container():
     logs = k8s_tools.get_logs_for_pod_and_container("pod-1", "default", "container-1")

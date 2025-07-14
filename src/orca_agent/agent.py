@@ -8,10 +8,8 @@ import datetime
 from os.path import exists
 import logging
 import asyncio
-from .runbook import get_runbook_text
 from .slack_client import send_message_to_channel
 from .conversations import get_conversations
-from .k8s_tools import TOOLS
 
 # TODO: add tools for get_services and get_rdeployments
 SYSTEM_PROMPT =\
@@ -21,15 +19,16 @@ of the alert message and debugging tips. Please be as specific as possible. Incl
 deployments, and errors mentioned in the alert.
 
 Be sure to mention where and how you obtained the information you used in the response, including tool calls and their associated kubectl calls, if any.
-This will help users to understand how they can debug this issue themselves in the future.
+This will help users to understand how they can debug this issue themselves in the future. Don't just tell the user about
+available commands, but run them and analyze the outputs, if an associated tool is available.
 
-# Tools
-Be sure the provided tools to obtain any additional information from the kubernetes cluster regarding any affected
+# Kubernetes Tools
+Be sure to use the provided tools to obtain any additional information from the kubernetes cluster regarding any affected
 pods. Use this to make your response relevant to the specific issue in the alert and provide more specific guidance.
 In particular, the following tools will be helpful in understanding the state of the system:
 
 * get_namespaces - get a list of namespaces, like `kubectl get namespace`
-* get_pod_summaries - get a list of pods, like `kubectl get pods
+* get_pod_summaries - get a list of pods, like `kubectl get pods`
 * get_pod_container_statuses - return the status for each of the container in a pod
 * get_pod_events - return the events for a pod
 * get_pod_spec - retrieves the spec for a given pod
@@ -62,6 +61,8 @@ def make_agent(model: str, instrument:bool=False):
         A configured pydantic.ai Agent instance.
     """
     from pydantic_ai.agent import Agent
+    from .k8s_tools import TOOLS
+    from .runbook import get_runbook_text
     tools = [get_runbook_text,] + TOOLS
     print(f"instrument={instrument}") # XXX
     return Agent(

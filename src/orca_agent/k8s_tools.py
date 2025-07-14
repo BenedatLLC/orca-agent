@@ -1,18 +1,25 @@
 """Tools for interacting with kubernetes.
-These are build on top of the kubernetes Python API (https://github.com/kubernetes-client/python)
-In some cases we return the same classes returned by the API
-(defined in https://github.com/kubernetes-client/python/tree/master/kubernetes/client/models).
-In other cases, we only return a subset of the fields, using a Pydantic model to define return
-values. This is particularly the case when we want to emulate some of the kubctl commands.
+These are build on top of the kubernetes Python API (https://github.com/kubernetes-client/python).
+The goal is to provide well-documented and strongly typed tools. There are three kinds
+of tools provided here:
+1. There are tools that mimic the output of kubectl commands (e.g. get_pod_summaries).
+   strongly-typed Pydantic models are used for the return values of these tools.
+2. There are tools that return strongly typed Pydantic models that attempt to match the associated Kubernetes
+   client types (see https://github.com/kubernetes-client/python/tree/master/kubernetes/docs).
+   Lesser used fields may be omitted from these models. An example of this case is get_pod_container_statuses.
+3. In some cases we simply call to_dict() on the class returned by the API (defined in 
+   https://github.com/kubernetes-client/python/tree/master/kubernetes/client/models).
+   The return type is dict[str,Any], but we document the fields in the function's docstring.
+   get_pod_spec is an example of this type of tool.
 
 These are the tools we define:
 
 * get_namespaces - get a list of namespaces, like `kubectl get namespace`
-* get_pod_summaries - get a list of pods, like `kubectl get pods
+* get_pod_summaries - get a list of pods, like `kubectl get pods`
 * get_pod_container_statuses - return the status for each of the container in a pod
 * get_pod_events - return the events for a pod
 * get_pod_spec - retrieves the spec for a given pod
-* get_logs_for_pod_and_container - retrieves logs from a pod and container.
+* get_logs_for_pod_and_container - retrieves logs from a pod and container
 
 We also define a set of associated "print_" functions that are helpful in debugging:
 
@@ -27,7 +34,7 @@ import sys
 import os
 import logging
 import datetime
-from typing import Optional, Union, Literal
+from typing import Optional, Union, Literal, Any
 
 from pydantic import BaseModel, Field
 import yaml
@@ -99,6 +106,7 @@ def get_namespaces() -> list[NamespaceSummary]:
     global K8S
     if K8S is None:
         K8S = _get_api_client()
+    logging.info(f"get_namespaces()")
     namespaces = K8S.list_namespace().items
     now = datetime.datetime.now(datetime.timezone.utc)
     return [
@@ -174,6 +182,7 @@ def get_pod_summaries(namespace: Optional[str] = None) -> list[PodSummary]:
     if K8S is None:
         K8S = _get_api_client()
 
+    logging.info(f"get_pod_summaries(namespace={namespace})")
     pod_summaries: list[PodSummary] = []
     
     try:
@@ -312,6 +321,7 @@ def get_pod_events(pod_name: str, namespace: str = "default") -> list[EventSumma
     global K8S
     if K8S is None:
         K8S = _get_api_client()
+    logging.info(f"get_pod_events(pod_name={pod_name}, namespace={namespace})")
     field_selector = f"involvedObject.name={pod_name}"
     events = K8S.list_namespaced_event(namespace, field_selector=field_selector)
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -338,8 +348,80 @@ def print_pod_events(pod_name: str, namespace: str = "default") -> None:
         message = (event.message[:37] + '...') if event.message and len(event.message) > 40 else event.message
         print(f"{last_seen:<12} {event.type:<10} {event.reason:<20} {event.object:<32} {message:<40}")
 
+# see kubernetes.client.models.v1_container_state_running.V1ContainerStateRunning
+class ContainerStateRunning(BaseModel):
+    state_name: Literal['Running'] = 'Running'
+    started_at: datetime.datetime
 
-def get_pod_container_statuses(pod_name: str, namespace: str = "default") -> list[V1ContainerStatus]:
+# see kubernetes.client.models.v1_container_state_waiting.V1ContainerStateWaiting
+class ContainerStateWaiting(BaseModel):
+    state_name: Literal['Waiting'] = 'Waiting'
+    reason: str
+    message: Optional[str] = None
+
+# see kubernetes.client.models.v1_container_state_terminated.V1ContainerStateTerminated
+class ContainerStateTerminated(BaseModel):
+    state_name: Literal['Terminated'] = 'Terminated'
+    exit_code: Optional[int] = None
+    finished_at: Optional[datetime.datetime] = None
+    reason: Optional[str] = None
+    message: Optional[str] = None
+    started_at: Optional[datetime.datetime] = None
+
+# see kubernetes.client.models.v1_container_state.V1ContainerState
+ContainerState = Union[ContainerStateRunning, ContainerStateWaiting, ContainerStateTerminated]
+
+def _v1_container_state_to_container_state(container_state:client.V1ContainerState) -> ContainerState:
+    if container_state.running:
+        return ContainerStateRunning(started_at=container_state.running.started_at)
+    elif container_state.waiting:
+        return ContainerStateWaiting(reason=container_state.waiting.reason,
+                                     message=container_state.waiting.message)
+    elif container_state.terminated:
+        cst = container_state.terminated
+        return ContainerStateTerminated(exit_code=cst.exit_code,
+                                        reason=cst.reason,
+                                        finished_at=cst.finished_at,
+                                        message=cst.message,
+                                        started_at=cst.started_at)
+    else:
+        raise K8sApiError(f"Unexpected container state: {container_state}")
+    
+# see https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1VolumeMountStatus.md
+class VolumeMountStatus(BaseModel):
+    mount_path: str
+    name: str
+    read_only: Optional[bool]
+    recursive_read_only: Optional[str]
+
+def _v1_volume_mount_status_to_mount_statis(mount_status:client.V1VolumeMountStatus) -> VolumeMountStatus:
+    return VolumeMountStatus(mount_path=mount_status.mount_path,
+                             name=mount_status.name,
+                             read_only=mount_status.read_only,
+                             recursive_read_only=mount_status.recursive_read_only)
+
+# and https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V1ContainerStatus.md
+class ContainerStatus(BaseModel):
+    """Provides information about a container running in a specific pod. This corresponds to
+    kubernetes.client.models.v1_container_tatus.V1ContainerStatus.
+    """
+    pod_name: str
+    namespace: str
+    container_name: str
+    image: str
+    ready: bool
+    restart_count: int
+    started: Optional[bool]
+    stop_signal: Optional[str]
+    state: Optional[ContainerState]
+    last_state: Optional[ContainerState]
+    volume_mounts: list[VolumeMountStatus]
+    resource_requests: dict[str, str]
+    resource_limits: dict[str, str]
+    allocated_resources: dict[str, str]
+
+    
+def get_pod_container_statuses(pod_name: str, namespace: str = "default") -> list[ContainerStatus]:
     """
     Get the status for all containers in a specified Kubernetes pod.
 
@@ -352,87 +434,135 @@ def get_pod_container_statuses(pod_name: str, namespace: str = "default") -> lis
 
     Returns
     -------
-    list of V1ContainerStatus
-        List of container status objects for the specified pod. Each V1ContainerStatus has the following fields:
+    list of ContainerStatus
+        List of container status objects for the specified pod. Each ContainerStatus has the following fields:
 
-        allocated_resources : dict(str, str)
-            Allocated resources for the container.
-        allocated_resources_status : list[V1ResourceStatus]
-            Status of allocated resources.
-        container_id : str
-            Container ID.
+        pod_name : str
+            Name of the pod.
+        namespace : str
+            Namespace of the pod.
+        container_name : str
+            Name of the container.
         image : str
             Image name.
-        image_id : str
-            Image ID.
-        last_state : V1ContainerState
-            Last state of the container.
-        name : str
-            Name of the container.
         ready : bool
-            Whether the container is ready.
-        resources : V1ResourceRequirements
-            Resource requirements for the container.
+            Whether the container is currently passing its readiness check.
+            The value will change as readiness probes keep executing.
         restart_count : int
             Number of times the container has restarted.
-        started : bool
-            Whether the container has started.
-        state : V1ContainerState
-            Current state of the container.
-        stop_signal : str
+        started : Optional[bool]
+            Started indicates whether the container has finished its postStart
+            lifecycle hook and passed its startup probe.
+        stop_signal : Optional[str]
             Stop signal for the container.
-        user : V1ContainerUser
-            User information for the container.
-        volume_mounts : list[V1VolumeMountStatus]
-            Volume mounts for the container.
+        state : Optional[ContainerState]
+            Current state of the container.
+        last_state : Optional[ContainerState]
+            Last state of the container.
+        volume_mounts : list[VolumeMountStatus]
+            Status of volume mounts for the container
+        resource_requests : dict[str, str]
+            Describes the minimum amount of compute resources required. If Requests
+            is omitted for a container, it defaults to Limits if that is explicitly specified,
+            otherwise to an implementation-defined value. Requests cannot exceed Limits. 
+        resource_limits : dict[str, str]
+            Describes the maximum amount of compute resources allowed.
+        allocated_resources : dict[str, str]
+            Compute resources allocated for this container by the node.
+
     Raises
     ------
     K8sConfigError
         If unable to initialize the K8S API.
     K8sApiError
         If the API call to read the pod fails.
-    """
+    """   
     global K8S
     if K8S is None:
         K8S = _get_api_client()
+    logging.info(f"get_pod_container_statuses(pod_name={pod_name}, namespace={namespace})")
     pod = K8S.read_namespaced_pod(name=pod_name, namespace=namespace)
     # Only proceed if pod is a V1Pod instance
     if not isinstance(pod, client.V1Pod):
-        return []
+        raise K8sApiError(f"Unexpected type for pod: {type(pod)}")
+    result:list[ContainerStatus] = []
     if not pod.status or not pod.status.container_statuses:
-        return []
-    return pod.status.container_statuses
+        return result
+    for container_status in pod.status.container_statuses:
+        container_name = container_status.name
+        image = container_status.image
+        ready = container_status.ready
+        restart_count = container_status.restart_count
+        started = container_status.started
+        stop_signal = container_status.stop_signal
+        state = _v1_container_state_to_container_state(container_status.state) \
+                if container_status.state is not None else None
+        last_state = _v1_container_state_to_container_state(container_status.last_state) \
+                if container_status.last_state is not None else None
+        volume_mounts = [_v1_volume_mount_status_to_mount_statis(volume_mount)
+                         for volume_mount in container_status.volume_mounts] \
+                if container_status.volume_mounts is not None else []
+        if container_status.resources:
+            resource_requests = container_status.resources.requests \
+                                if container_status.resources.requests is not None else {}
+            resource_limits = container_status.resources.limits \
+                              if container_status.resources.limits is not None else {}
+        else:
+            resource_requests = {}
+            resource_limits = {}
+        allocated_resources = container_status.allocated_resources \
+                              if container_status.allocated_resources is not None else {}
+
+        result.append(ContainerStatus(
+            pod_name=pod_name,
+            namespace=namespace,
+            container_name=container_name,
+            image=image,
+            ready=ready,
+            restart_count=restart_count,
+            started=started,
+            stop_signal=stop_signal,
+            state=state,
+            last_state=last_state,
+            volume_mounts=volume_mounts,
+            resource_requests=resource_requests,
+            resource_limits=resource_limits,
+            allocated_resources=allocated_resources
+        ))
+    return result
+
 
 def print_pod_container_statuses(pod_name: str, namespace: str = "default") -> None:
     """
     Pretty-print the status for all containers in a specified Kubernetes pod. 
     """
     containers = get_pod_container_statuses(pod_name, namespace)
-    print(f"{'NAME':<24} {'READY':<8} {'RESTARTS':<9} {'STATE':<12} {'REASON':<20} {'STARTED':<30} {'FINISHED':<30}")
+    print(f"{'NAME':<24} {'READY':<8} {'RESTARTS':<9} {'STATE':<12} {'REASON':<20} {'STARTED':<30} {'FINISHED':<30} {'MEMORY':<12}")
     for cs in containers:
-        name = cs.name
+        name = cs.container_name
         ready = str(cs.ready)
         restarts = str(cs.restart_count)
         state = "-"
         reason = "-"
         started = "-"
         finished = "-"
+        memory = cs.allocated_resources.get('memory', '-')
         if cs.state:
-            if cs.state.running:
+            if isinstance(cs.state, ContainerStateRunning):
                 state = "Running"
-                started = cs.state.running.started_at.isoformat() if cs.state.running.started_at else "-"
-            elif cs.state.waiting:
+                started = cs.state.started_at.isoformat() if cs.state.started_at else "-"
+            elif isinstance(cs.state, ContainerStateWaiting):
                 state = "Waiting"
-                reason = cs.state.waiting.reason if cs.state.waiting.reason else "-"
-            elif cs.state.terminated:
+                reason = cs.state.reason if cs.state.reason else "-"
+            elif isinstance(cs.state, ContainerStateTerminated):
                 state = "Terminated"
-                reason = cs.state.terminated.reason if cs.state.terminated.reason else "-"
-                started = cs.state.terminated.started_at.isoformat() if cs.state.terminated.started_at else "-"
-                finished = cs.state.terminated.finished_at.isoformat() if cs.state.terminated.finished_at else "-"
-        print(f"{name:<24} {ready:<8} {restarts:<9} {state:<12} {reason:<20} {started:<30} {finished:<30}")
+                reason = cs.state.reason if cs.state.reason else "-"
+                started = cs.state.started_at.isoformat() if cs.state.started_at else "-"
+                finished = cs.state.finished_at.isoformat() if cs.state.finished_at else "-"
+        print(f"{name:<24} {ready:<8} {restarts:<9} {state:<12} {reason:<20} {started:<30} {finished:<30} {memory:<12}")
 
 
-def get_pod_spec(pod_name: str, namespace: str = "default") -> V1PodSpec:
+def get_pod_spec(pod_name: str, namespace: str = "default") -> dict[str,Any]:
     """
     Retrieves the spec for a given pod in a specific namespace.
 
@@ -442,8 +572,9 @@ def get_pod_spec(pod_name: str, namespace: str = "default") -> V1PodSpec:
 
     Returns
     -------
-    kubernetes.client.V1PodSpec
-        The pod's spec object, containing its desired state. Key fields include:
+    dict[str, Any]
+        The pod's spec object, containing its desired state. It is converted
+        from a V1PodSpec to a dictionary. Key fields include:
 
         containers : list of kubernetes.client.V1Container
             List of containers belonging to the pod. Each container defines its image,
@@ -479,14 +610,14 @@ def get_pod_spec(pod_name: str, namespace: str = "default") -> V1PodSpec:
     global K8S
     if K8S is None:
         K8S = _get_api_client()
-
+        logging.info(f"get_pod_spec(pod_name={pod_name}, namespace={namespace})")
     try:
         # Get the pod object
         pod = K8S.read_namespaced_pod(name=pod_name, namespace=namespace)
         # Ensure pod is a V1Pod instance and has a spec
         if not isinstance(pod, client.V1Pod) or not hasattr(pod, "spec") or pod.spec is None:
             raise K8sApiError(f"Pod '{pod_name}' in namespace '{namespace}' did not return a valid spec.")
-        return pod.spec
+        return pod.spec.to_dict()
     except ApiException as e:
         if hasattr(e, "status") and e.status == 404:
             raise K8sApiError(
@@ -502,8 +633,7 @@ def get_pod_spec(pod_name: str, namespace: str = "default") -> V1PodSpec:
 def print_pod_spec(pod_name: str, namespace: str = "default") -> None:
     """Pretty prints the spec for the specified pod as valid YAML."""
     try:
-        spec = get_pod_spec(pod_name, namespace)
-        spec_dict = spec.to_dict() if hasattr(spec, "to_dict") else vars(spec)
+        spec_dict = get_pod_spec(pod_name, namespace)
         print(yaml.safe_dump(spec_dict, default_flow_style=False, sort_keys=False))
     except Exception as e:
         print(f"Error printing pod spec: {e}")

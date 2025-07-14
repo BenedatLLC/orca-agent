@@ -74,6 +74,7 @@ def get_runbook_text(url: str) -> str:
     RunbookRetrievalError
         If there is an error retrieving the runbook content from the URL.
     """
+    logging.info(f"get_runbook_text(url={url})")
     try:
         url = rewrite_github_url(url)
         response = requests.get(url)
