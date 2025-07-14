@@ -7,9 +7,11 @@ to find more specific details about the problems. If a runbook is provided in th
 it will use that in formulating a debugging strategy.
 
 ## Example output
-Here is an explanation of the CrashLoopBackOff alert and next debugging steps, using actual data from your cluster:
+Below is an example output from a real Grafana alert.
 
 ---
+
+Here is an explanation of the CrashLoopBackOff alert and next debugging steps, using actual data from your cluster:
 
 ### What Happened?
 
@@ -38,14 +40,10 @@ OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader clas
 ```
 No error messages are available in these logs, but the last container state has exit code 137.
 
----
-
 ### What Does Exit Code 137 Mean?
 
 - **Exit Code 137** usually indicates the container was killed by the system, often for using too much memory (OOMKilled).
 - Since your container is both requesting and being limited to 300Mi memory, and that matches what is allocated, it's likely this container is running out of memory very quickly.
-
----
 
 ### Immediate Steps to Debug & Resolve
 
@@ -70,15 +68,11 @@ No error messages are available in these logs, but the last container state has 
 4. **Review JVM Heap Settings**
    - Consider explicitly setting JVM heap settings according to the new container memory limit. For example, set `-Xmx` and `-Xms` to values safely below the requested container memory.
 
----
-
 ### Runbook and Additional Reference
 
 This alert includes a runbook:
 https://github.com/BenedatLLC/otel-demo/blob/main/RCA/CrashLoop.md
 This gives detailed, step-by-step procedures for CrashLoopBackOff, specifically for OOMKilled and configuration errors.
-
----
 
 #### How was this analysis done?
 
@@ -86,10 +80,10 @@ This gives detailed, step-by-step procedures for CrashLoopBackOff, specifically 
 - Looked up the exit code and reviewed resource settings directly from the live cluster.
 - Interpreted logs and state based on what is typically found for Java apps running with an OpenTelemetry agent.
 
----
-
 **In summary:**
 Your fraud-detection container is likely running out of memory on startup. Increase its memory limit and/or tune the JVM settings, then redeploy. If it continues to crash, check logs after adjusting, and consult the runbook linked above for more advanced troubleshooting.
+
+---
 
 ## Prerequisites
 ### direnv
