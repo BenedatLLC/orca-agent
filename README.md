@@ -2,7 +2,7 @@
 Orca-agent is an an agent for Observability Root Cause Analysis.
 This first version reads Grafana alerts that were sent to a Slack channel,
 and replies with an explanation and suggested debugging approaches. It uses
-kubectl (via an [MCP Server](https://github.com/rohitg00/kubectl-mcp-server))
+tools defined over the [Python kubernetes client APIs](https://github.com/kubernetes-client/python)
 to find more specific details about the problems. If a runbook is provided in the alert,
 it will use that in formulating a debugging strategy.
 
@@ -75,23 +75,6 @@ via a locally-hosted [Phoenix](https://github.com/Arize-ai/phoenix) instance. To
 1. Add the following to your .envrc file: `export PHOENIX_COLLECTOR_ENDPOINT=http://localhost:6006`
 2. Run the docker container: `docker run -p 6006:6006 -p 4317:4317 -i -t arizephoenix/phoenix:latest`
 3. When running `orca-agent`, specify the `--enable-tracing` option
-
-## Debugging the Kubernetes MCP Tools
-To debug the Kubernetes MCP tools, use [mcptools](https://github.com/f/mcptools). The syntax for ccalling the MCP
-server is:
-```sh
-mcpt [command] python -m kubectl_mcp_tool.mcp_server
-```
-
-For example:
-```sh
-mcpt tools python -m kubectl_mcp_tool.mcp_server
-mcpt call get_pods python -m kubectl_mcp_tool.mcp_server
-mcpt shell python -m kubectl_mcp_tool.mcp_server # start interactive shell
-
-mcp > call get_pod_events --params {"pod_name":"ad-f4fd4fb69-r5w9"}
-
-```
 
 ## See also
 [otel-demo](https://github.com/BenedatLLC/otel-demo) provides some scripts, instructions,
