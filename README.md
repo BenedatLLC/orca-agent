@@ -6,6 +6,91 @@ tools defined over the [Python kubernetes client APIs](https://github.com/kubern
 to find more specific details about the problems. If a runbook is provided in the alert,
 it will use that in formulating a debugging strategy.
 
+## Example output
+Here is an explanation of the CrashLoopBackOff alert and next debugging steps, using actual data from your cluster:
+
+---
+
+### What Happened?
+
+The pod **fraud-detection-779dc555c5-7ndxg** (container: fraud-detection) is currently in a CrashLoopBackOff. This means Kubernetes keeps trying to start the container, but it crashes quickly after every attempt.
+
+#### Pod/Container Details
+
+- **Image:** ghcr.io/open-telemetry/demo:2.0.2-fraud-detection
+- **Restart count:** 662 (this is very high!)
+- **Last container state:** Terminated with exit code 137 (which usually means killed due to out-of-memory, OOMKilled, or SIGKILL)
+- **Current state:** Waiting ("CrashLoopBackOff"). Message: back-off 5m0s restarting failed container=fraud-detection...
+- **Resource limits/requests:** 300Mi memory
+
+#### Recent Events
+
+- Normal: Image already present on machine (pull succeeded)
+- Warning: BackOff restarting failed container fraud-detection
+
+#### Recent Logs
+
+The container log provides:
+```
+Picked up JAVA_TOOL_OPTIONS: -javaagent:/app/opentelemetry-javaagent.jar
+OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended
+[otel.javaagent 2025-07-14 02:30:06:603 +0000] [main] INFO io.opentelemetry.javaagent.tooling.VersionLogger - opentelemetry-javaagent - version: 2.13.3
+```
+No error messages are available in these logs, but the last container state has exit code 137.
+
+---
+
+### What Does Exit Code 137 Mean?
+
+- **Exit Code 137** usually indicates the container was killed by the system, often for using too much memory (OOMKilled).
+- Since your container is both requesting and being limited to 300Mi memory, and that matches what is allocated, it's likely this container is running out of memory very quickly.
+
+---
+
+### Immediate Steps to Debug & Resolve
+
+1. **Check Resource Usage**
+   The memory limits (300Mi) may be too low for this Java workload, especially with the OpenTelemetry agent.
+   - Try increasing the memory `requests` and `limits` for this deployment (500Mi or more is often needed for Java apps).
+
+2. **Check for OOMKilled Events**
+   Although events above mention only 'BackOff', not explicit OOMKilled, the exit code strongly suggests OOM.
+   - You can check for OOMKilled events using:
+     ```
+     kubectl get events --namespace=default --field-selector involvedObject.name=fraud-detection-779dc555c5-7ndxg
+     ```
+   - Or check the pod's status in more detail:
+     ```
+     kubectl describe pod fraud-detection-779dc555c5-7ndxg -n default
+     ```
+
+3. **Application Logs**
+   If possible, try to view additional logs. The provided logs show nothing after JVM startup, further suggesting a rapid resource exhaustion.
+
+4. **Review JVM Heap Settings**
+   - Consider explicitly setting JVM heap settings according to the new container memory limit. For example, set `-Xmx` and `-Xms` to values safely below the requested container memory.
+
+---
+
+### Runbook and Additional Reference
+
+This alert includes a runbook:
+https://github.com/BenedatLLC/otel-demo/blob/main/RCA/CrashLoop.md
+This gives detailed, step-by-step procedures for CrashLoopBackOff, specifically for OOMKilled and configuration errors.
+
+---
+
+#### How was this analysis done?
+
+- Used kubectl-equivalent tooling (`get_pod_container_statuses`, `get_pod_events`, and `get_logs_for_pod_and_container`) to review the real pod/container status, events, and logs.
+- Looked up the exit code and reviewed resource settings directly from the live cluster.
+- Interpreted logs and state based on what is typically found for Java apps running with an OpenTelemetry agent.
+
+---
+
+**In summary:**
+Your fraud-detection container is likely running out of memory on startup. Increase its memory limit and/or tune the JVM settings, then redeploy. If it continues to crash, check logs after adjusting, and consult the runbook linked above for more advanced troubleshooting.
+
 ## Prerequisites
 ### direnv
 You need to have [direnv](https://direnv.net/) installed and configured for your shell.
