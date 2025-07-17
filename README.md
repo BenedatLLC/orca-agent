@@ -6,7 +6,7 @@ tools defined over the [Python kubernetes client APIs](https://github.com/kubern
 to find more specific details about the problems. If a runbook is provided in the alert,
 it will use that in formulating a debugging strategy.
 
-[Orca workflow](doc/orca-rca-workflow.png "Orca RCA workflow")
+![Orca workflow](doc/orca-rca-workflow.png "Orca RCA workflow")
 
 ## Example output
 Below is an example output from a real Grafana alert.
