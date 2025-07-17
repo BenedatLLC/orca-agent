@@ -176,12 +176,12 @@ via a locally-hosted [Phoenix](https://github.com/Arize-ai/phoenix) instance. To
 ## Roadmap
 Current and upcoming work:
 
-[ ] Refactor k8s tools to a separate repository; add more tools
-[ ] Test additional RCA scenarios
-[ ] Update Slack layer to use Socket Mode for realtime updates
-[ ] Support live chat with users in alert channel
-[ ] Explore thinking models and other approaches to allow more sophsticated analyses
-[ ] Build semantic search over past incidents
+- [ ] Refactor k8s tools to a separate repository; add more tools
+- [ ] Test additional RCA scenarios
+- [ ] Update Slack layer to use Socket Mode for realtime updates
+- [ ] Support live chat with users in alert channel
+- [ ] Explore thinking models and other approaches to allow more sophsticated analyses
+- [ ] Build semantic search over past incidents
 
 ## See also
 [otel-demo](https://github.com/BenedatLLC/otel-demo) provides some scripts, instructions,
