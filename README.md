@@ -1,4 +1,20 @@
 # orca-agent
+
+## Table of Contents
+- [Introduction](#introduction)
+- [Example output](#example-output)
+- [Prerequisites](#prerequisites)
+  - [direnv](#direnv)
+  - [uv](#uv)
+  - [Slack](#slack)
+  - [OpenAI](#openai)
+- [Running the agent](#running-the-agent)
+- [Other utilities](#other-utilities)
+- [Phoenix integration for tracing](#phoenix-integration-for-tracing)
+- [Roadmap](#roadmap)
+- [See also](#see-also)
+
+## Introduction
 Orca-agent is an an agent for Observability Root Cause Analysis.
 This first version reads Grafana alerts that were sent to a Slack channel,
 and replies with an explanation and suggested debugging approaches. It uses
@@ -6,7 +22,7 @@ tools defined over the [Python kubernetes client APIs](https://github.com/kubern
 to find more specific details about the problems. If a runbook is provided in the alert,
 it will use that in formulating a debugging strategy.
 
-![Orca workflow](doc/orca-rca-workflow.png "Orca RCA workflow")
+![Orca workflow](orca-rca-workflow.png "Orca RCA workflow")
 
 ## Example output
 Below is an example output from a real Grafana alert.
@@ -156,6 +172,16 @@ via a locally-hosted [Phoenix](https://github.com/Arize-ai/phoenix) instance. To
 1. Add the following to your .envrc file: `export PHOENIX_COLLECTOR_ENDPOINT=http://localhost:6006`
 2. Run the docker container: `docker run -p 6006:6006 -p 4317:4317 -i -t arizephoenix/phoenix:latest`
 3. When running `orca-agent`, specify the `--enable-tracing` option
+
+## Roadmap
+Current and upcoming work:
+
+[ ] Refactor k8s tools to a separate repository; add more tools
+[ ] Test additional RCA scenarios
+[ ] Update Slack layer to use Socket Mode for realtime updates
+[ ] Support live chat with users in alert channel
+[ ] Explore thinking models and other approaches to allow more sophsticated analyses
+[ ] Build semantic search over past incidents
 
 ## See also
 [otel-demo](https://github.com/BenedatLLC/otel-demo) provides some scripts, instructions,
