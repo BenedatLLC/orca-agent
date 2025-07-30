@@ -172,7 +172,7 @@ via a locally-hosted [Phoenix](https://github.com/Arize-ai/phoenix) instance. To
 ## Roadmap
 Current and upcoming work:
 
-- [ ] Refactor k8s tools to a separate repository; add more tools
+- [x] Refactor k8s tools to a separate repository; add more tools
 - [ ] Test additional RCA scenarios
 - [ ] Update Slack layer to use Socket Mode for realtime updates
 - [ ] Support live chat with users in alert channel
@@ -180,7 +180,9 @@ Current and upcoming work:
 - [ ] Build semantic search over past incidents
 
 ## See also
-[otel-demo](https://github.com/BenedatLLC/otel-demo) provides some scripts, instructions,
-and root cause analyses around the
-[Open Telemetry Demo Application](https://github.com/open-telemetry/opentelemetry-demo).
-This application can be useful for testing the Orca agent.
+* [k8stools](https://github.com/BenedatLLC/k8stools) provides strongly-typed tools for obtaining
+  status and configuration data from a live Kubernetes cluster.
+* [otel-demo](https://github.com/BenedatLLC/otel-demo) provides some scripts, instructions,
+  and root cause analyses around the
+  [Open Telemetry Demo Application](https://github.com/open-telemetry/opentelemetry-demo).
+  This application can be useful for testing the Orca agent.
