@@ -8,6 +8,7 @@ import datetime
 from os.path import exists
 import logging
 import asyncio
+from typing import Optional
 from .slack_client import send_message_to_channel
 from .conversations import get_conversations
 
@@ -47,13 +48,19 @@ explanation.
 Write your reply using Markdown formatting. Don't use tables, as they aren't supported by Slack's markdown.
 """
 
-def make_agent(model: str, instrument:bool=False):
+def make_agent(model: str, tools:Optional[list]=None, instrument:bool=False):
     """
     Create and return a pydantic.ai Agent with access to runbook and Slack tools.
 
     Parameters
     ----------
     model : str
+        Name of the model.
+    tools : Optional[list[Tool]]
+        If specified, use the provides tool (e.g. for mocking the real tools). The most common case is to leave
+        this unspecified, which will include the tools from k8stools and the runbook retriever. 
+    instrument : bool
+        Set to True to automatically instrument with OpenTelemetry,
 
     Returns
     -------
@@ -61,10 +68,10 @@ def make_agent(model: str, instrument:bool=False):
         A configured pydantic.ai Agent instance.
     """
     from pydantic_ai.agent import Agent
-    from .k8s_tools import TOOLS
+    from k8stools.k8s_tools import TOOLS
     from .runbook import get_runbook_text
-    tools = [get_runbook_text,] + TOOLS
-    print(f"instrument={instrument}") # XXX
+    if tools is None:
+        tools = [get_runbook_text,] + TOOLS
     return Agent(
         model=model,
         system_prompt=SYSTEM_PROMPT,
@@ -72,41 +79,53 @@ def make_agent(model: str, instrument:bool=False):
         instrument=instrument
     )
 
+class StopAgentLoop(Exception):
+    pass
+
+
 async def check_loop(agent, later_than:datetime.datetime, args):
+    """This is the main loop of the agent. In each iteration,
+    we check for new alerts. For each alert found, we call the agent and
+    then send the response.
+    
+    If we receive a StopAgentLoop exception, we exit early.
+    """
     from .pydantic_utils import pp_run_result
     logging.info(f"Entering main loop with later_than={later_than}")
-    while True:
-        next_later_than = datetime.datetime.now()
-        sent_cnt = 0
-        logging.info(f"Checking for conversations since {later_than}")
-        conversations = get_conversations(
-            args.alert_slack_user, args.agent_slack_user,
-            args.alert_slack_channel, limit=100,
-            later_than=later_than
-        )
-        logging.info(f"Found {len(conversations)} messages")
-        for message in conversations:
-            input = message.markdown()
-            logging.info(f"Calling agent with input of length {len(input)}")
-            result = await agent.run(input)
-            if args.debug:
-                pp_run_result(result)
+    try:
+        while True:
+            next_later_than = datetime.datetime.now()
+            sent_cnt = 0
+            logging.info(f"Checking for conversations since {later_than}")
+            conversations = get_conversations(
+                args.alert_slack_user, args.agent_slack_user,
+                args.alert_slack_channel, limit=100,
+                later_than=later_than
+            )
+            logging.info(f"Found {len(conversations)} messages")
+            for message in conversations:
+                input = message.markdown()
+                logging.info(f"Calling agent with input of length {len(input)}")
+                result = await agent.run(input)
+                if args.debug:
+                    pp_run_result(result)
+                if not args.dry_run:
+                    send_message_to_channel(args.alert_slack_channel, result.output, message.thread_ts)
+                    logging.info(f"Send message of length {len(result.output)} to channel {args.alert_slack_channel}")
+                else:
+                    logging.info(f"[DRY RUN] Would send message of length {len(result.output)} to channel {args.alert_slack_channel}")
+                    print(f"{'='*15} Output from agent {'='*15}")
+                    print(result.output + '\n')
+                    raise StopAgentLoop("[DRY RUN] Stopping agent loop after one message")
+                sent_cnt += 1
+            later_than = next_later_than
             if not args.dry_run:
-                send_message_to_channel(args.alert_slack_channel, result.output, message.thread_ts)
-                logging.info(f"Send message of length {len(result.output)} to channel {args.alert_slack_channel}")
-            else:
-                logging.info(f"[DRY RUN] Would send message of length {len(result.output)} to channel {args.alert_slack_channel}")
-                print(f"{'='*15} Output from agent {'='*15}")
-                print(result.output + '\n')
-                logging.info("[DRY RUN] Exit after first message")
-                return
-            sent_cnt += 1
-        later_than = next_later_than
-        if not args.dry_run:
-            with open(args.check_time_file, 'w') as f:
-                f.write(later_than.isoformat())
-        logging.info(f"Processed {sent_cnt} alerts. Will sleep for {args.check_interval_seconds} seconds")
-        await asyncio.sleep(args.check_interval_seconds)
+                with open(args.check_time_file, 'w') as f:
+                    f.write(later_than.isoformat())
+            logging.info(f"Processed {sent_cnt} alerts. Will sleep for {args.check_interval_seconds} seconds")
+            await asyncio.sleep(args.check_interval_seconds)
+    except StopAgentLoop as e:
+        logging.info(f"Exiting agent check loop per request: {e}")
 
 
         

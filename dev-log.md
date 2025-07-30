@@ -1,6 +1,13 @@
 # Development log
 
-## 2024-07-13
+## 2025-07-29
+* Moved k8s_tools.py to a separate package (`k8stools`).
+* Changed agent.py to make it possible to mock the tools.
+* Added test_agent.py, which has a completely mocked out test and a test that
+  only mocks the kubernetes tools, but uses a real LLM.
+* Added a GitHub workflow to run the tests upon checkin
+
+## 2025-07-13
 * Updated k8s_tools.py to use the kubernetes APIs directly. I found that Pydantic.ai
   could not serialize the kubernetes client types. I either hand-created and populated
   associated Pydantic models or I called to_dict() on the return from the K8S APIs.

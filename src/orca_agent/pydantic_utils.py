@@ -69,7 +69,7 @@ def pp_run_result(result:AgentRunResult, indent=0):
     print(f"{indentstr}AGENT RUN RESULT:")
     indentstr += "  "
     print(f"{indentstr}CONTENT:")
-    _indent_no_fill(str(result.data), indent+4)
+    _indent_no_fill(str(result.output), indent+4)
     messages = result.all_messages()
     if len(messages)>0:
         print(f"{indentstr}MESSAGES:")
