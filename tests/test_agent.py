@@ -84,7 +84,8 @@ def mock_send_message_to_channel():
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(os.getenv("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY environment variable not set")
+@pytest.mark.skipif(os.getenv("OPENAI_API_KEY") is None or os.getenv("OPENAI_API_KEY")=="",
+                    reason="OPENAI_API_KEY environment variable not set")
 async def test_agent_with_real_llm_and_mocked_tools():
     """This test case will run the agent using a real llm, but mocked tools. The mocked tools should
     correspond to a real scenario, so we should get something useful in response."""
