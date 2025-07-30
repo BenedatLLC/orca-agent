@@ -121,8 +121,9 @@ async def test_agent_with_mocked_llm_and_mocked_tools(tmp_path):
         debug = False, # set to True if you are trying to debug this test
         dry_run=False,
         )
-    agent = make_agent(model=REAL_MODEL, tools=tools)
     from pydantic_ai.models.test import TestModel
+    
+    agent = make_agent(model='test', tools=tools)
     m = TestModel()
     with agent.override(model=m):
         await check_loop(agent, later_than=LATER_THAN, args=args)
